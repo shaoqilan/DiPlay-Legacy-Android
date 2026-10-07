@@ -51,6 +51,7 @@ object AirPlayPersistence {
     private const val KEY_MANUFACTURER = "manufacturer"
     private const val KEY_MODEL = "model"
     private const val KEY_OEM_LABEL = "oem_label"
+    private const val KEY_OEM_LABEL_MIGRATED_TO_FORD = "oem_label_migrated_to_ford"
     private const val KEY_FPS = "display_fps"
     private const val KEY_MEDIA_BUFFER_MS = "media_buffer_ms"
     private const val KEY_CLUSTER_MAP = "cluster_map_enabled"
@@ -77,7 +78,7 @@ object AirPlayPersistence {
 
     const val DEFAULT_MANUFACTURER = "DiPlay"
     const val DEFAULT_MODEL = "DiPlay"
-    const val DEFAULT_OEM_LABEL = "BYD"
+    const val DEFAULT_OEM_LABEL = "Ford"
     const val DEFAULT_MFI_I2C_PATH = "/dev/i2c-1"
 
     fun loadDisplayScaleTenths(context: Context): Int {
@@ -335,11 +336,21 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadOemLabel(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_OEM_LABEL, DEFAULT_OEM_LABEL)
-            // iOS hides the car icon without a label.
+    fun loadOemLabel(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(KEY_OEM_LABEL_MIGRATED_TO_FORD, false)) {
+            val oldLabel = prefs.getString(KEY_OEM_LABEL, null)
+            val editor = prefs.edit().putBoolean(KEY_OEM_LABEL_MIGRATED_TO_FORD, true)
+            // BYD was the previous built-in default; migrate it once while preserving custom names.
+            if (oldLabel == null || oldLabel.equals("BYD", ignoreCase = true)) {
+                editor.putString(KEY_OEM_LABEL, DEFAULT_OEM_LABEL)
+            }
+            editor.apply()
+        }
+        // iOS hides the car icon without a label.
+        return prefs.getString(KEY_OEM_LABEL, DEFAULT_OEM_LABEL)
             .orEmpty().ifBlank { DEFAULT_OEM_LABEL }
+    }
 
     fun saveOemLabel(context: Context, oemLabel: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()

@@ -10,6 +10,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.locks.LockSupport
 
 /**
@@ -36,6 +37,7 @@ class Ipv6NcmBridge(
     private var loggedWaitingForPeer = false
     private var inboundLogBudget = 16
     private var outboundLogBudget = 24
+    private val tcpLogBudget = AtomicInteger(32)
     private val running = AtomicBoolean(false)
     private lateinit var ncmToTunThread: Thread
     private lateinit var tunToNcmThread: Thread
@@ -79,6 +81,9 @@ class Ipv6NcmBridge(
                     inboundLogBudget--
                     Log.i(TAG, "ncm inbound ${frame.summary(ipv6.payloadOffset)}")
                 }
+                if (frame.isTcp(ipv6.payloadOffset) && tcpLogBudget.getAndDecrement() > 0) {
+                    Log.i(TAG, "ncm TCP inbound ${frame.summary(ipv6.payloadOffset)}")
+                }
                 output.write(frame, ipv6.payloadOffset, ipv6.payloadLength)
             }
         } catch (error: IOException) {
@@ -112,6 +117,9 @@ class Ipv6NcmBridge(
                 if (outboundLogBudget > 0) {
                     outboundLogBudget--
                     Log.i(TAG, "ncm outbound ${ipv6.summary(0)}")
+                }
+                if (ipv6.isTcp(0) && tcpLogBudget.getAndDecrement() > 0) {
+                    Log.i(TAG, "ncm TCP outbound ${ipv6.summary(0)}")
                 }
                 val multicastMac = EthernetIpv6Codec.multicastDestinationMac(ipv6)
                 val mac = multicastMac ?: peerMac
@@ -159,7 +167,18 @@ class Ipv6NcmBridge(
         val destination = InetAddress.getByAddress(copyOfRange(offset + 24, offset + 40)).hostAddress
         val nextHeader = this[offset + 6].toInt() and 0xff
         val detail = when {
-            nextHeader == 6 && payloadBytes >= 44 -> " tcp=${u16(offset + 40)}->${u16(offset + 42)}"
+            nextHeader == 6 && payloadBytes >= 60 -> {
+                val flags = this[offset + 53].toInt() and 0xff
+                val flagText = buildList {
+                    if (flags and 0x02 != 0) add("SYN")
+                    if (flags and 0x10 != 0) add("ACK")
+                    if (flags and 0x04 != 0) add("RST")
+                    if (flags and 0x01 != 0) add("FIN")
+                    if (flags and 0x08 != 0) add("PSH")
+                }.joinToString("|").ifEmpty { "none" }
+                " tcp=${u16(offset + 40)}->${u16(offset + 42)} flags=$flagText " +
+                    "seq=${u32(offset + 44)} ack=${u32(offset + 48)}"
+            }
             nextHeader == 17 && payloadBytes >= 44 -> " udp=${u16(offset + 40)}->${u16(offset + 42)}"
             nextHeader == 58 && payloadBytes >= 41 -> " icmp6=${this[offset + 40].toInt() and 0xff}"
             else -> ""
@@ -169,6 +188,17 @@ class Ipv6NcmBridge(
 
     private fun ByteArray.u16(offset: Int): Int =
         ((this[offset].toInt() and 0xff) shl 8) or (this[offset + 1].toInt() and 0xff)
+
+    private fun ByteArray.u32(offset: Int): Long =
+        ((this[offset].toLong() and 0xff) shl 24) or
+            ((this[offset + 1].toLong() and 0xff) shl 16) or
+            ((this[offset + 2].toLong() and 0xff) shl 8) or
+            (this[offset + 3].toLong() and 0xff)
+
+    private fun ByteArray.isTcp(offset: Int): Boolean =
+        size >= offset + 40 && (this[offset].toInt() ushr 4 and 0x0f) == 6 &&
+            (this[offset + 6].toInt() and 0xff) == 6 &&
+            size - offset >= 60
 
     private companion object {
         const val TAG = "xcertplay-usb"

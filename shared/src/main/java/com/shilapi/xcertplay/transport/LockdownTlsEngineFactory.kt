@@ -41,7 +41,9 @@ object LockdownTlsEngineFactory {
                 load(null, password)
                 setKeyEntry(KEY_ALIAS, privateKey, password, arrayOf(certificate))
             }
-            val keyManagers = KeyManagerFactory.getInstance("PKIX").apply {
+            // Android 4.2 vendor builds need not register the newer PKIX alias. Use the
+            // device's configured JSSE key-manager algorithm for this private Lockdown key.
+            val keyManagers = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply {
                 init(keyStore, password)
             }.keyManagers
             val context = SSLContext.getInstance("TLS").apply {

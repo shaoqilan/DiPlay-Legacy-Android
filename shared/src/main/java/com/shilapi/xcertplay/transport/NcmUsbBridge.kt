@@ -289,7 +289,10 @@ class NcmUsbBridge internal constructor(
             ((source[offset + 3].toInt() and 0xff) shl 24)
 
     companion object {
-        private const val READ_CHUNK_BYTES = 32 * 1024
+        // Android 8 on the SM-C5000 rejects UsbRequest.queue() buffers larger than 16 KiB.
+        // NTB16 parsing already supports blocks split across reads, so keep USB requests within
+        // that platform limit and let appendBuffered()/drainFrames() reassemble them.
+        private const val READ_CHUNK_BYTES = 16 * 1024
         private const val USB_PACKET_SIZE = 512
         private const val STATUS_POLL_TIMEOUT_MILLIS = 20
         private const val STATUS_POLL_INTERVAL_MILLIS = 500L
@@ -298,10 +301,16 @@ class NcmUsbBridge internal constructor(
         private const val NANOS_PER_MILLISECOND = 1_000_000L
 
         /** Claims and activates the NCM control/data interfaces; owns the connection on success. */
-        fun open(connection: UsbDeviceConnection, function: NcmFunctionDiscovery.NcmFunction): NcmUsbBridge {
+        fun open(
+            connection: UsbDeviceConnection,
+            function: NcmFunctionDiscovery.NcmFunction,
+            onProgress: (String) -> Unit = {},
+        ): NcmUsbBridge {
             val claimed = ArrayList<UsbInterface>(2)
             try {
+                onProgress("NCM: reading the USB Ethernet MAC descriptor")
                 val descriptorHostMac = readNcmHostMac(connection, function.control.id)
+                onProgress("NCM: Ethernet MAC descriptor read complete")
                 Log.i(
                     IphoneCarPlayConfiguration.TAG,
                     "ncm descriptor hostMac=${descriptorHostMac?.macString() ?: "unavailable"}",
@@ -310,7 +319,9 @@ class NcmUsbBridge internal constructor(
                 // same interface id, so it must be claimed once and switched with setInterface.
                 val sameInterface = function.control.id == function.data.id
                 val first = if (sameInterface) function.data else function.control
+                onProgress("NCM: claiming interface ${first.id}")
                 val firstClaimed = connection.claimInterface(first, true)
+                onProgress("NCM: claim interface ${first.id} returned $firstClaimed")
                 Log.i(
                     IphoneCarPlayConfiguration.TAG,
                     "claim iface=${first.id}/${IphoneCarPlayConfiguration.alternateSetting(first)} class=${first.interfaceClass}" +
@@ -323,7 +334,9 @@ class NcmUsbBridge internal constructor(
                 }
                 claimed.add(first)
                 if (!sameInterface) {
+                    onProgress("NCM: claiming data interface ${function.data.id}")
                     val dataClaimed = connection.claimInterface(function.data, true)
+                    onProgress("NCM: claim data interface ${function.data.id} returned $dataClaimed")
                     Log.i(
                         IphoneCarPlayConfiguration.TAG,
                         "claim iface=${function.data.id}/${IphoneCarPlayConfiguration.alternateSetting(function.data)}" +
@@ -336,7 +349,11 @@ class NcmUsbBridge internal constructor(
                     }
                     claimed.add(function.data)
                 }
+                initializeNcmControlPlane(connection, function)
+                onProgress("NCM: selecting data interface ${function.data.id} alternate setting " +
+                    IphoneCarPlayConfiguration.alternateSetting(function.data))
                 val altSelected = selectUsbInterface(connection, function.data)
+                onProgress("NCM: selecting data alternate setting returned $altSelected")
                 Log.i(
                     IphoneCarPlayConfiguration.TAG,
                     "setInterface iface=${function.data.id}/${IphoneCarPlayConfiguration.alternateSetting(function.data)} ok=$altSelected",
@@ -346,10 +363,12 @@ class NcmUsbBridge internal constructor(
                         "Android could not select the NCM data alternate setting",
                     )
                 }
+                configureEthernetPacketFilter(connection, function)
                 Log.i(
                     IphoneCarPlayConfiguration.TAG,
                     "ncm status endpoint=${function.statusIn?.address?.let { "0x${it.toString(16)}" } ?: "none"}",
                 )
+                onProgress("NCM: data paths opened")
                 return NcmUsbBridge(
                     connection,
                     function.bulkOut,
@@ -393,6 +412,107 @@ class NcmUsbBridge internal constructor(
             return ByteArray(6) { offset -> hex.substring(offset * 2, offset * 2 + 2).toInt(16).toByte() }
         }
 
+        /** Select NCM framing while the data interface is still in alternate setting zero. */
+        private fun initializeNcmControlPlane(
+            connection: UsbDeviceConnection,
+            function: NcmFunctionDiscovery.NcmFunction,
+        ) {
+            val parameters = ByteArray(NCM_NTB_PARAMETERS_BYTES)
+            val length = connection.controlTransfer(
+                USB_CLASS_INTERFACE_IN,
+                NCM_GET_NTB_PARAMETERS,
+                0,
+                function.control.id,
+                parameters,
+                parameters.size,
+                USB_CONTROL_TIMEOUT_MILLIS,
+            )
+            if (length < NCM_NTB_PARAMETERS_BYTES) {
+                Log.w(IphoneCarPlayConfiguration.TAG, "ncm GET_NTB_PARAMETERS returned $length bytes")
+                return
+            }
+
+            val formats = readU16(parameters, 2)
+            Log.i(
+                IphoneCarPlayConfiguration.TAG,
+                "ncm parameters formats=0x${formats.toString(16)} " +
+                    "deviceInMax=${readU32(parameters, 4)} deviceOutMax=${readU32(parameters, 16)}",
+            )
+            if (formats and NCM_NTB16_SUPPORTED == 0) {
+                Log.w(IphoneCarPlayConfiguration.TAG, "NCM device did not advertise NTB16 support")
+                return
+            }
+
+            val result = connection.controlTransfer(
+                USB_CLASS_INTERFACE_OUT,
+                NCM_SET_NTB_FORMAT,
+                NCM_NTB16_FORMAT,
+                function.control.id,
+                ByteArray(0),
+                0,
+                USB_CONTROL_TIMEOUT_MILLIS,
+            )
+            Log.i(IphoneCarPlayConfiguration.TAG, "ncm SET_NTB_FORMAT(NTB16) result=$result")
+        }
+
+        /** Enable directed and multicast traffic only when the NCM function advertises filtering. */
+        private fun configureEthernetPacketFilter(
+            connection: UsbDeviceConnection,
+            function: NcmFunctionDiscovery.NcmFunction,
+        ) {
+            val capabilities = ncmNetworkCapabilities(connection.rawDescriptors, function.control.id)
+            if (capabilities == null || capabilities and NCM_CAP_ETHERNET_FILTER == 0) {
+                Log.i(
+                    IphoneCarPlayConfiguration.TAG,
+                    "ncm Ethernet packet filter unsupported (capabilities=${capabilities?.let { "0x${it.toString(16)}" } ?: "unknown"})",
+                )
+                return
+            }
+            val filter = NCM_PACKET_FILTER_ALL_MULTICAST or NCM_PACKET_FILTER_DIRECTED or
+                NCM_PACKET_FILTER_BROADCAST or NCM_PACKET_FILTER_MULTICAST
+            val result = connection.controlTransfer(
+                USB_CLASS_INTERFACE_OUT,
+                NCM_SET_ETHERNET_PACKET_FILTER,
+                filter,
+                function.control.id,
+                ByteArray(0),
+                0,
+                USB_CONTROL_TIMEOUT_MILLIS,
+            )
+            Log.i(IphoneCarPlayConfiguration.TAG, "ncm SET_ETHERNET_PACKET_FILTER(0x${filter.toString(16)}) result=$result")
+        }
+
+        private fun ncmNetworkCapabilities(raw: ByteArray, controlInterfaceId: Int): Int? {
+            var offset = 0
+            var currentInterface = -1
+            while (offset + 2 <= raw.size) {
+                val length = raw[offset].toInt() and 0xff
+                val type = raw[offset + 1].toInt() and 0xff
+                if (length < 2 || offset + length > raw.size) return null
+                if (type == USB_INTERFACE_DESCRIPTOR_TYPE && length >= 9) {
+                    currentInterface = raw[offset + 2].toInt() and 0xff
+                } else if (
+                    currentInterface == controlInterfaceId &&
+                    type == USB_CLASS_SPECIFIC_INTERFACE_DESCRIPTOR &&
+                    length >= NCM_FUNCTIONAL_DESCRIPTOR_BYTES &&
+                    (raw[offset + 2].toInt() and 0xff) == NCM_FUNCTIONAL_DESCRIPTOR_SUBTYPE
+                ) {
+                    return raw[offset + 5].toInt() and 0xff
+                }
+                offset += length
+            }
+            return null
+        }
+
+        private fun readU16(source: ByteArray, offset: Int): Int =
+            (source[offset].toInt() and 0xff) or ((source[offset + 1].toInt() and 0xff) shl 8)
+
+        private fun readU32(source: ByteArray, offset: Int): Long =
+            (source[offset].toLong() and 0xff) or
+                ((source[offset + 1].toLong() and 0xff) shl 8) or
+                ((source[offset + 2].toLong() and 0xff) shl 16) or
+                ((source[offset + 3].toLong() and 0xff) shl 24)
+
         private fun ethernetMacStringIndex(raw: ByteArray, controlInterfaceId: Int): Int? {
             var offset = 0
             var currentInterface = -1
@@ -423,6 +543,22 @@ class NcmUsbBridge internal constructor(
         private const val USB_STRING_DESCRIPTOR_TYPE = 0x03
         private const val CDC_FUNCTIONAL_DESCRIPTOR_TYPE = 0x24
         private const val CDC_ETHERNET_SUBTYPE = 0x0f
+        private const val USB_CLASS_INTERFACE_IN = 0xa1
+        private const val USB_CLASS_INTERFACE_OUT = 0x21
+        private const val USB_CLASS_SPECIFIC_INTERFACE_DESCRIPTOR = 0x24
+        private const val NCM_FUNCTIONAL_DESCRIPTOR_SUBTYPE = 0x1a
+        private const val NCM_FUNCTIONAL_DESCRIPTOR_BYTES = 6
+        private const val NCM_NTB_PARAMETERS_BYTES = 28
+        private const val NCM_GET_NTB_PARAMETERS = 0x80
+        private const val NCM_SET_NTB_FORMAT = 0x84
+        private const val NCM_SET_ETHERNET_PACKET_FILTER = 0x43
+        private const val NCM_NTB16_SUPPORTED = 0x0001
+        private const val NCM_NTB16_FORMAT = 0x0000
+        private const val NCM_CAP_ETHERNET_FILTER = 0x01
+        private const val NCM_PACKET_FILTER_ALL_MULTICAST = 0x0002
+        private const val NCM_PACKET_FILTER_DIRECTED = 0x0004
+        private const val NCM_PACKET_FILTER_BROADCAST = 0x0008
+        private const val NCM_PACKET_FILTER_MULTICAST = 0x0010
         private const val USB_ENGLISH_US = 0x0409
         private const val USB_CONTROL_TIMEOUT_MILLIS = 1_000
     }

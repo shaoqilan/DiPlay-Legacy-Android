@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.transport
 
+import android.os.Build
 import java.nio.ByteBuffer
 import java.security.GeneralSecurityException
 import javax.net.ssl.SSLEngine
@@ -409,9 +410,16 @@ class TlsDuplexChannel private constructor(
             try {
                 val engine = LockdownTlsEngineFactory.create(pairRecord)
                 val supported = engine.supportedProtocols.toSet()
-                val enabled = ALLOWED_PROTOCOLS.filter(supported::contains).toTypedArray()
+                val modernProtocols = ALLOWED_PROTOCOLS.filter(supported::contains)
+                // Android's SSLEngine did not support TLS 1.2 until API 20. Keep the
+                // TLS 1.0 fallback confined to this paired, USB-only Lockdown stream.
+                val enabled = if (modernProtocols.isEmpty() && Build.VERSION.SDK_INT < 20 && "TLSv1" in supported) {
+                    arrayOf("TLSv1")
+                } else {
+                    modernProtocols.toTypedArray()
+                }
                 if (enabled.isEmpty()) {
-                    throw IphoneUsbException.Protocol("TLS engine supports neither TLSv1.2 nor TLSv1.3")
+                    throw IphoneUsbException.Protocol("Lockdown TLS engine supports no usable protocol: ${supported.sorted()}")
                 }
                 engine.enabledProtocols = enabled
                 return TlsDuplexChannel(underlying, engine).also {

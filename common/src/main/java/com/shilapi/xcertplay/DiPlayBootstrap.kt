@@ -51,6 +51,7 @@ internal object DiPlayBootstrap {
 }
 
 internal object DiPlayPreferences {
+    private const val KEY_CAR_UI_RETURN_PENDING = "car_ui_return_pending"
     private fun prefs(context: Context) = context.getSharedPreferences("diplay", Context.MODE_PRIVATE)
     fun phoneAddress(context: Context): String? = prefs(context).getString("phone_address", null)
     fun phoneName(context: Context): String = prefs(context).getString("phone_name", null) ?: "Your iPhone"
@@ -60,5 +61,18 @@ internal object DiPlayPreferences {
     fun autoConnect(context: Context) = prefs(context).getBoolean("auto_connect", false)
     fun saveAutoConnect(context: Context, value: Boolean) {
         prefs(context).edit().putBoolean("auto_connect", value).apply()
+    }
+    fun markCarUiReturnPending(context: Context) {
+        // Persist before the system HOME intent backgrounds the process.
+        prefs(context).edit().putBoolean(KEY_CAR_UI_RETURN_PENDING, true).commit()
+    }
+    fun isCarUiReturnPending(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_CAR_UI_RETURN_PENDING, false)
+
+    fun consumeCarUiReturnPending(context: Context): Boolean {
+        val preferences = prefs(context)
+        val pending = preferences.getBoolean(KEY_CAR_UI_RETURN_PENDING, false)
+        if (pending) preferences.edit().remove(KEY_CAR_UI_RETURN_PENDING).commit()
+        return pending
     }
 }

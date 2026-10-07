@@ -167,6 +167,7 @@
     <string name="could_not_save_image">Could not save image</string>
     <string name="could_not_save_the_report">Could not save the report</string>
     <string name="could_not_start_carplay_return_to_diplay_and_check_app_per">Could not start CarPlay. Return to DiPlay and check app permissions.</string>
+    <string name="carplay_controller_verification_failed">CarPlay controller could not run on this Android system (VerifyError). Please send a diagnostic report.</string>
     <string name="custom_1_1_icon">Custom 1:1 icon</string>
     <string name="debug_logs">Debug logs</string>
     <string name="default_icon">Default icon</string>
@@ -373,6 +374,21 @@
     <string name="use_your_last_connection_type_and_selected_iphone">Use your last connection type and selected iPhone.</string>
     <string name="vpn_consent_was_denied">VPN consent was denied</string>
     <string name="waiting_for_iphone_over_usb">Waiting for iPhone over USB</string>
+    <string name="ncm_reading_mac">USB network: reading Ethernet details</string>
+    <string name="ncm_mac_read">USB network: Ethernet details read</string>
+    <string name="ncm_claiming_control">USB network: claiming control interface</string>
+    <string name="ncm_control_claimed">USB network: control interface responded</string>
+    <string name="ncm_claiming_data">USB network: claiming data interface</string>
+    <string name="ncm_data_claimed">USB network: data interface responded</string>
+    <string name="ncm_selecting_alternate">USB network: selecting data mode</string>
+    <string name="ncm_alternate_selected">USB network: data mode responded</string>
+    <string name="ncm_data_opened">USB network: data paths opened</string>
+    <string name="ncm_still_waiting">Still waiting: %1$s</string>
+    <string name="usbmux_opening">USBMUX: opening the iPhone connection</string>
+    <string name="usbmux_sending_version">USBMUX: sending version handshake</string>
+    <string name="usbmux_waiting_version">USBMUX: waiting for the iPhone reply</string>
+    <string name="usbmux_version_accepted">USBMUX: version handshake complete</string>
+    <string name="usbmux_setup_sent">USBMUX: connection setup sent</string>
     <string name="waiting_for_mfi_coprocessor">Waiting for MFi coprocessor</string>
     <string name="waiting_for_paired_iphone">Waiting for paired iPhone</string>
     <string name="wi_fi_direct_is_still_busy_close_the_other_projection_app">Wi-Fi Direct is still busy. Close the other projection app and try again.</string>
@@ -448,4 +464,13 @@
     <string name="adb_battery_reading">Battery: %1$d %%, %2$d km.</string>
     <string name="adb_battery_unreadable">The battery cannot be read on this car, so the iPhone is not told about an electric car.</string>
     <string name="adb_battery_reconnect">If CarPlay connected before the battery was ready, use Apply and reconnect to enable battery reporting.</string>
+    <string name="vehicle_appearance">Vehicle icon and name</string>
+    <string name="vehicle_appearance_description">Choose how your car appears on the CarPlay home screen.</string>
+    <string name="vehicle_name_for_carplay">Vehicle name</string>
+    <string name="vehicle_name_hint">Ford</string>
+    <string name="save_vehicle_name">Save vehicle name</string>
+    <string name="choose_vehicle_icon">Choose vehicle icon</string>
+    <string name="use_default_ford_icon">Use default Ford icon</string>
+    <string name="vehicle_appearance_next_connection">Changes take effect the next time CarPlay connects. Leave the name blank to use Ford.</string>
+    <string name="carplay_paused_on_head_unit">CarPlay was returned to the car screen. Tap Connect to start again.</string>
 </resources>

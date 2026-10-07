@@ -14,6 +14,7 @@ import java.util.ArrayDeque
 class Iap2UsbMuxHost private constructor(
     private val pipe: Iap2UsbSession,
     private val readTimeoutMillis: Long,
+    private val onProgress: (String) -> Unit,
 ) : Closeable {
     private val stateLock = Any()
     private val writeLock = Any()
@@ -112,7 +113,9 @@ class Iap2UsbMuxHost private constructor(
         putU32(version, 0, PROTOCOL_VERSION)
         putU32(version, 4, VERSION_MESSAGE_BYTES)
         putU32(version, 8, USBMUX_VERSION)
+        onProgress("USBMUX: sending version request")
         pipe.write(version, HANDSHAKE_TIMEOUT_MILLIS.toInt())
+        onProgress("USBMUX: waiting for iPhone version reply")
         // The phone replies with the same proto=0, length=20, version=2 packet. Protocol 1 is not
         // a distinct "version reply" here; waiting for it discards the valid reply and times out.
         val deadline = System.nanoTime() + HANDSHAKE_TIMEOUT_MILLIS * NANOS_PER_MILLISECOND
@@ -145,7 +148,9 @@ class Iap2UsbMuxHost private constructor(
             Log.i("xcertplay-usb", "discarding stale usbmux TCP frame before version reply")
         }
         Log.i("xcertplay-usb", "usbmux version accepted: ${reply.word8}")
+        onProgress("USBMUX: version reply accepted")
         sendFrame(PROTOCOL_SETUP, byteArrayOf(SETUP_VALUE.toByte()))
+        onProgress("USBMUX: setup message sent")
         readerThread = Thread(::readerLoop, "iap2-usbmux-reader").apply {
             isDaemon = true
             start()
@@ -300,9 +305,10 @@ class Iap2UsbMuxHost private constructor(
         fun open(
             pipe: Iap2UsbSession,
             readTimeoutMillis: Long = 1_000,
+            onProgress: (String) -> Unit = {},
         ): Iap2UsbMuxHost {
             require(readTimeoutMillis > 0) { "readTimeoutMillis must be positive" }
-            return Iap2UsbMuxHost(pipe, readTimeoutMillis).also {
+            return Iap2UsbMuxHost(pipe, readTimeoutMillis, onProgress).also {
                 try {
                     it.begin()
                 } catch (error: Throwable) {

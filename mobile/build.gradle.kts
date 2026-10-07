@@ -5,6 +5,7 @@ plugins {
 // Optional local-only input. CI and ordinary source builds contain no accessory identity.
 val localAuthenticationAssets = providers.environmentVariable("DIPLAY_AUTH_ASSETS_DIR")
     .orNull?.let { file(it).canonicalFile }
+val freshVpnPackage = providers.environmentVariable("DIPLAY_FRESH_VPN_PACKAGE").orNull == "true"
 
 android {
     namespace = "com.shilapi.xcertplay"
@@ -14,7 +15,7 @@ android {
 
     defaultConfig {
         applicationId = "com.shihab.diplay"
-        minSdk = 19
+        minSdk = 17
         targetSdk = 37
         multiDexEnabled = true
         versionCode = 26
@@ -39,8 +40,8 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".hudtest"
-            versionNameSuffix = "-hud-test"
+            applicationIdSuffix = if (freshVpnPackage) ".hudvpn" else ".hudtest"
+            versionNameSuffix = if (freshVpnPackage) "-hud-vpn-test" else "-hud-test"
         }
         release {
             optimization {

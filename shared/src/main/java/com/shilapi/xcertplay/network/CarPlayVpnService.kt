@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Binder
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
+import android.os.Process
 import android.util.Log
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
@@ -61,7 +62,8 @@ class CarPlayVpnService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
     private var attachGeneration = 0
 
-    override fun onBind(intent: Intent?): IBinder = binder
+    override fun onBind(intent: Intent?): IBinder? =
+        if (intent?.action == SERVICE_INTERFACE) super.onBind(intent) else binder
 
     @Synchronized
     fun attach(
@@ -95,7 +97,7 @@ class CarPlayVpnService : VpnService() {
                 .setMtu(TUN_MTU)
             .apply { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) setBlocking(true) }
                 .establish()
-                ?: throw IOException("VpnService.establish returned null")
+                ?: throw IOException(vpnEstablishFailure())
             tun = tunFd
 
             val ipv6Bridge = Ipv6NcmBridge(ncm, tunFd, hostMac) { error ->
@@ -113,6 +115,29 @@ class CarPlayVpnService : VpnService() {
             releaseLocked()
             AttachResult.Failed(error.message ?: error.javaClass.simpleName)
         }
+    }
+
+    private fun vpnEstablishFailure(): String {
+        val prepared = prepare(this) == null
+        val declared = packageManager.resolveService(
+            Intent(SERVICE_INTERFACE).setClassName(packageName, javaClass.name), 0,
+        ) != null
+        val ipv4Probe = try {
+            val probe = Builder()
+                .addAddress("10.203.0.1", 32)
+                .setSession("DiPlay VPN capability probe")
+                .setMtu(TUN_MTU)
+                .establish()
+            if (probe == null) "null" else {
+                probe.close()
+                "created"
+            }
+        } catch (error: Exception) {
+            "${error.javaClass.simpleName}:${error.message}"
+        }
+        return "VpnService.establish returned null: prepared=$prepared " +
+            "serviceDeclared=$declared uid=${Process.myUid()} appUid=${applicationInfo.uid} " +
+            "ipv4Probe=$ipv4Probe"
     }
 
     /**
@@ -166,6 +191,7 @@ class CarPlayVpnService : VpnService() {
     ) {
         val server = ServerSocket()
         server.bind(InetSocketAddress(replacement.address, replacement.config.port))
+        Log.i(TAG, "AirPlay listener bound address=${server.inetAddress.hostAddress} port=${server.localPort}")
         attachment = replacement
         serverSocket = server
         Thread(

@@ -14,6 +14,53 @@ data class CarPlayUsbConfiguration(
     internal val platformConfiguration: Any? = null,
 )
 
+internal data class RawUsbInterfaceDescriptor(
+    val id: Int,
+    val alternateSetting: Int,
+    val endpointCount: Int,
+    val interfaceClass: Int,
+    val interfaceSubclass: Int,
+    val interfaceProtocol: Int,
+)
+
+internal data class RawUsbConfigurationDescriptor(
+    val id: Int,
+    val interfaces: List<RawUsbInterfaceDescriptor>,
+)
+
+/** USB configuration descriptors retain the grouping that API 17's UsbDevice omits. */
+internal fun parseRawUsbConfigurations(raw: ByteArray): List<RawUsbConfigurationDescriptor> {
+    val configurations = mutableListOf<RawUsbConfigurationDescriptor>()
+    var configurationId: Int? = null
+    var interfaces = mutableListOf<RawUsbInterfaceDescriptor>()
+    var offset = 0
+    while (offset + 2 <= raw.size) {
+        val length = raw[offset].toInt() and 0xff
+        if (length < 2 || offset + length > raw.size) return emptyList()
+        when (raw[offset + 1].toInt() and 0xff) {
+            2 -> if (length >= 9) {
+                configurationId?.let { configurations += RawUsbConfigurationDescriptor(it, interfaces) }
+                configurationId = raw[offset + 5].toInt() and 0xff
+                interfaces = mutableListOf()
+            }
+            4 -> if (length >= 9 && configurationId != null) {
+                interfaces += RawUsbInterfaceDescriptor(
+                    id = raw[offset + 2].toInt() and 0xff,
+                    alternateSetting = raw[offset + 3].toInt() and 0xff,
+                    endpointCount = raw[offset + 4].toInt() and 0xff,
+                    interfaceClass = raw[offset + 5].toInt() and 0xff,
+                    interfaceSubclass = raw[offset + 6].toInt() and 0xff,
+                    interfaceProtocol = raw[offset + 7].toInt() and 0xff,
+                )
+            }
+        }
+        offset += length
+    }
+    if (offset != raw.size) return emptyList()
+    configurationId?.let { configurations += RawUsbConfigurationDescriptor(it, interfaces) }
+    return configurations
+}
+
 /**
  * Descriptor-based discovery of the iPhone's CarPlay configuration.
  *
@@ -34,10 +81,14 @@ object IphoneCarPlayConfiguration {
     private const val PREFERRED_USBMUX_OUT = 0x04
     private const val PREFERRED_USBMUX_IN = 0x85
 
-    fun find(device: UsbDevice): CarPlayUsbConfiguration? {
+    fun find(device: UsbDevice, rawDescriptors: ByteArray? = null): CarPlayUsbConfiguration? {
         val configurations = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             platformConfigurations(device)
+        } else if (rawDescriptors != null) {
+            legacyConfigurations(device, rawDescriptors)
         } else {
+            // Descriptor-only discovery before USB permission. Never use this synthetic id to
+            // issue SET_CONFIGURATION; reopen with raw descriptors to resolve the actual id.
             listOf(CarPlayUsbConfiguration(1, (0 until device.interfaceCount).map(device::getInterface)))
         }
         val chosen = configurations.firstOrNull { usbMuxInterface(it) != null && hasCdcNcm(it) && hasAppleEthernet(it) }
@@ -98,6 +149,33 @@ object IphoneCarPlayConfiguration {
                 it.interfaceSubclass == APPLE_ETHERNET_SUBCLASS &&
                 it.interfaceProtocol == APPLE_ETHERNET_PROTOCOL
         }
+
+    private fun legacyConfigurations(device: UsbDevice, raw: ByteArray): List<CarPlayUsbConfiguration> {
+        val descriptors = parseRawUsbConfigurations(raw)
+        val expectedCount = descriptors.sumOf { it.interfaces.size }
+        if (descriptors.isEmpty() || expectedCount != device.interfaceCount) {
+            Log.w(TAG, "API 17 USB descriptor mismatch: configs=${descriptors.map { it.id }} " +
+                "rawInterfaces=$expectedCount androidInterfaces=${device.interfaceCount}")
+            return emptyList()
+        }
+        var index = 0
+        return descriptors.map { descriptor ->
+            val interfaces = descriptor.interfaces.map { rawInterface ->
+                val usbInterface = device.getInterface(index++)
+                if (usbInterface.id != rawInterface.id ||
+                    usbInterface.interfaceClass != rawInterface.interfaceClass ||
+                    usbInterface.interfaceSubclass != rawInterface.interfaceSubclass ||
+                    usbInterface.interfaceProtocol != rawInterface.interfaceProtocol ||
+                    usbInterface.endpointCount != rawInterface.endpointCount
+                ) {
+                    Log.w(TAG, "API 17 USB interface mismatch at index=${index - 1} config=${descriptor.id}")
+                    return emptyList()
+                }
+                usbInterface
+            }
+            CarPlayUsbConfiguration(descriptor.id, interfaces)
+        }
+    }
 
     fun alternateSetting(usbInterface: UsbInterface): Int =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) usbInterface.alternateSetting

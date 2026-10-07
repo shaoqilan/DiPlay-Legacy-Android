@@ -163,6 +163,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private val vpnConsent =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             awaitingVpnConsent = false
+            appendLog("VPN consent activity returned resultCode=${result.resultCode}")
             if (result.resultCode == RESULT_OK) {
                 vpnReady = true
                 maybeStartCarPlay()
@@ -393,6 +394,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (returnToHeadUnitHomeForUsbReenumeration(intent)) return
         languagePreferenceAtCreate = AppLocale.preference(this)
         if (intent.action == "android.hardware.usb.action.USB_DEVICE_ATTACHED") {
             AirPlayPersistence.saveWirelessEnabled(this, false)
@@ -471,7 +473,9 @@ class CarPlayHostActivity : ComponentActivity() {
         safeAreaDrawOutside = AirPlayPersistence.loadSafeAreaDrawOutside(this)
         locationReportingEnabled = AirPlayPersistence.loadLocationReportingEnabled(this)
         locationPermissionAvailable = hasFineLocationPermission()
-        wirelessEnabled = AirPlayPersistence.loadWirelessEnabled(this)
+        // Wireless CarPlay is temporarily disabled in this wired-only test build.
+        wirelessEnabled = false
+        AirPlayPersistence.saveWirelessEnabled(this, false)
         mfiTarget = AirPlayPersistence.loadMfiTarget(this)
         mfiI2cPath = AirPlayPersistence.loadMfiI2cPath(this)
         remoteMfiServer = AirPlayPersistence.loadRemoteMfiServer(this)
@@ -514,6 +518,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun requestVpnConsent() {
         val consent = CarPlayVpnService.prepare(this)
+        appendLog("VPN prepare package=$packageName consentRequired=${consent != null}")
         if (consent == null) {
             vpnReady = true
             maybeStartCarPlay()
@@ -561,12 +566,34 @@ class CarPlayHostActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (returnToHeadUnitHomeForUsbReenumeration(intent)) return
         if (intent.action == "android.hardware.usb.action.USB_DEVICE_ATTACHED" && wirelessEnabled) {
             shutdown(false, "switching to USB") {
                 AirPlayPersistence.saveWirelessEnabled(this, false)
                 startActivity(Intent(this, CarPlayHostActivity::class.java))
             }
             finish()
+        }
+    }
+
+    /** USB re-enumeration must not pull DiPlay back over the head unit's HOME screen. */
+    private fun returnToHeadUnitHomeForUsbReenumeration(intent: Intent): Boolean {
+        if (intent.action != "android.hardware.usb.action.USB_DEVICE_ATTACHED" ||
+            !DiPlayPreferences.isCarUiReturnPending(this) ||
+            !CarPlayBackgroundSession.hasSession()
+        ) return false
+        return runCatching {
+            startActivity(
+                Intent(Intent.ACTION_MAIN)
+                    .addCategory(Intent.CATEGORY_HOME)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+            finish()
+            Log.i("DiPlay", "Ignored USB re-enumeration after returning to the head-unit home screen")
+            true
+        }.getOrElse { error ->
+            Log.w(TAG, "Could not keep head-unit home in front after USB re-enumeration", error)
+            false
         }
     }
 
@@ -883,77 +910,6 @@ class CarPlayHostActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply { topMargin = dp(14) },
-        )
-
-        val wirelessRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        wirelessRow.addView(
-            menuText(getString(R.string.wireless_carplay_2), 20f, MENU_SECONDARY),
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
-        )
-        val wirelessSwitch = SwitchCompat(this).apply {
-            isChecked = wirelessEnabled
-            contentDescription = getString(R.string.wireless_carplay_transport)
-            showText = false
-            thumbTintList = ColorStateList(
-                arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-                intArrayOf(MENU_ACCENT, MENU_SECONDARY),
-            )
-            trackTintList = ColorStateList(
-                arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-                intArrayOf(MENU_ACCENT_TRACK, MENU_TRACK_OFF),
-            )
-            setOnCheckedChangeListener { _, checked ->
-                if (wirelessEnabled == checked) return@setOnCheckedChangeListener
-                wirelessEnabled = checked
-                hotspotStatus = HotspotStatus(state = if (wirelessEnabled) getString(R.string.hotspot_state_stopped) else getString(R.string.hotspot_state_off))
-                updateHotspotStatusBlock()
-                appendLog(
-                    "Wireless CarPlay ${if (wirelessEnabled) "enabled" else "disabled"}; " +
-                        "applies when settings close",
-                )
-                requestStartupPrerequisites()
-            }
-        }
-        wirelessRow.addView(
-            wirelessSwitch,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
-        content.addView(
-            wirelessRow,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(30) },
-        )
-
-        content.addView(
-            buildHotspotModeSection(),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(30) },
-        )
-
-        content.addView(
-            menuText(getString(R.string.hotspot_status), 20f, MENU_SECONDARY),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(18) },
-        )
-        val hotspotStatusView = menuText("", 16f, MENU_ACCENT)
-        content.addView(
-            hotspotStatusView,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(6) },
         )
 
         content.addView(
@@ -1451,8 +1407,6 @@ class CarPlayHostActivity : ComponentActivity() {
 
         resolutionValueView = resolutionValue
         resolutionPreviewView = preview
-        this.hotspotStatusView = hotspotStatusView
-        updateHotspotStatusBlock()
         updateResolutionMenu()
         return overlay
     }
@@ -2847,9 +2801,7 @@ class CarPlayHostActivity : ComponentActivity() {
         return AirPlayIcon(bounds.outWidth, bounds.outHeight, encoded)
     }
 
-    private fun defaultAirPlayIconBytes(): ByteArray =
-        // Shown in CarPlay's app list as the "back to the car" button.
-        resources.openRawResource(R.raw.ic_car_home).use { it.readBytes() }
+    private fun defaultAirPlayIconBytes(): ByteArray = DefaultAirPlayVehicleIcon.png()
 
     private fun updateAirPlayIconPreview() {
         val preview = iconPreviewView ?: return
@@ -3002,6 +2954,10 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun createSessionListener(controllerGeneration: Int): AirPlaySessionListener =
         object : AirPlaySessionListener {
+            override fun onHostUiRequested(session: AirPlaySession) {
+                DiPlayPreferences.markCarUiReturnPending(this@CarPlayHostActivity)
+            }
+
             override fun onSessionActive(session: AirPlaySession) {
                 runOnUiThread {
                     if (controllerGeneration != restartGeneration) {
@@ -3055,6 +3011,8 @@ class CarPlayHostActivity : ComponentActivity() {
                     } else {
                         appendLog(message)
                     }
+                    ncmDisplayStage(message)?.let { setConnectionStage(it, showExactStage = true) }
+                    usbMuxDisplayStage(message)?.let { setConnectionStage(it, showExactStage = true) }
                 }
             }
         }
@@ -3065,7 +3023,7 @@ class CarPlayHostActivity : ComponentActivity() {
         if (!menuOpen && controllerGeneration == restartGeneration) {
             updateHotspotStatus(status)
             val description = status.describe()
-            setConnectionStage(description)
+            setConnectionStage(description, showExactStage = true)
             when (status) {
                 is CarPlayStatus.Failed -> if (status.wifiResetRequired) {
                     wifiRecoveryButton?.visibility = View.VISIBLE
@@ -3127,6 +3085,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun startCarPlay(size: DisplaySize) {
         if (CarPlayBackgroundSession.hasSession() && !CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress || controller != null) return
+        oemLabel = AirPlayPersistence.loadOemLabel(this)
         val controllerGeneration = restartGeneration
         val config = createRuntimeConfig()
         val airPlayConfig = createAirPlayConfig(size)
@@ -3148,6 +3107,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 "location=${if (config.locationReportingEnabled) "enabled" else "disabled"} " +
                 "mfi=${mfiTargetLabel(config.mfiTarget)}",
         )
+        val constructorFinished = java.util.concurrent.atomic.AtomicBoolean(false)
         Log.i(
             TAG,
             "starting controller display=${size.width}x${size.height} " +
@@ -3159,55 +3119,114 @@ class CarPlayHostActivity : ComponentActivity() {
                 "location=${config.locationReportingEnabled} " +
                 "mfi=${config.mfiTarget}",
         )
-        val renderer = createMediaSink(
-            videoWidth = airPlayConfig.main.widthPixels,
-            videoHeight = airPlayConfig.main.heightPixels,
-            controllerGeneration = controllerGeneration,
-        )
-        sink = renderer
-        currentSurface?.let(::attachSurface)
-        clusterSurface?.let { renderer.setSurface(SCREEN_TYPE_ALT, it) }
-        val media = createMediaEngine(renderer)
-        val pairings = AirPlayPersistence.loadPairings(this) { id, key ->
-            AirPlayPersistence.savePairing(this, id, key)
-        }
-        val next = CarPlayController(
-            context = this,
-            config = config,
-            airPlayConfig = airPlayConfig,
-            identity = airPlayIdentity,
-            pairings = pairings,
-            listener = createSessionListener(controllerGeneration),
-            media = media,
-            reportStatus = createStatusReporter(controllerGeneration),
-            loadPairRecord = { AirPlayPersistence.loadLockdownRecord(this) },
-            savePairRecord = { record -> AirPlayPersistence.saveLockdownRecord(this, record) },
-            clearPairRecord = { AirPlayPersistence.clearLockdownRecord(this) },
-            locationProvider = locationProvider,
-            vehicleStatusProvider = if (com.shilapi.xcertplay.hud.BydOutputSettings.batteryToIphone(this)) {
-                com.shilapi.xcertplay.hud.BydNavigationOutputs.batteryStatus(applicationContext)
-            } else {
-                null
-            },
-        )
-        controller = next
-        CarPlayMediaKeys.attach(this, next)
-        CarPlayBackgroundSession.store(next, renderer, size.width, size.height, this) { completion ->
-            runOnUiThread {
-                shutdown(terminateProcess = false, reason = "DiPlay disconnect", completion = completion)
-                finish()
-            }
-        }
         try {
+            appendLog("Controller setup: creating media sink")
+            val renderer = createMediaSink(
+                videoWidth = airPlayConfig.main.widthPixels,
+                videoHeight = airPlayConfig.main.heightPixels,
+                controllerGeneration = controllerGeneration,
+            )
+            sink = renderer
+            currentSurface?.let(::attachSurface)
+            clusterSurface?.let { renderer.setSurface(SCREEN_TYPE_ALT, it) }
+            val media = createMediaEngine(renderer)
+            val pairings = AirPlayPersistence.loadPairings(this) { id, key ->
+                AirPlayPersistence.savePairing(this, id, key)
+            }
+            appendLog("Controller setup: creating USB controller")
+            val constructorThread = Thread.currentThread()
+            Thread({
+                try {
+                    Thread.sleep(5_000)
+                    if (!constructorFinished.get()) {
+                        appendLog("Controller constructor is still running; thread=${constructorThread.name}")
+                        constructorThread.stackTrace.take(16).forEach { frame ->
+                            appendLog("Controller constructor frame: $frame")
+                        }
+                    }
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                }
+            }, "diplay-controller-watchdog").apply { isDaemon = true; start() }
+            val next = CarPlayController(
+                context = this,
+                config = config,
+                airPlayConfig = airPlayConfig,
+                identity = airPlayIdentity,
+                pairings = pairings,
+                listener = createSessionListener(controllerGeneration),
+                media = media,
+                reportStatus = createStatusReporter(controllerGeneration),
+                loadPairRecord = { AirPlayPersistence.loadLockdownRecord(this) },
+                savePairRecord = { record -> AirPlayPersistence.saveLockdownRecord(this, record) },
+                clearPairRecord = { AirPlayPersistence.clearLockdownRecord(this) },
+                locationProvider = locationProvider,
+                vehicleStatusProvider = if (com.shilapi.xcertplay.hud.BydOutputSettings.batteryToIphone(this)) {
+                    com.shilapi.xcertplay.hud.BydNavigationOutputs.batteryStatus(applicationContext)
+                } else {
+                    null
+                },
+            )
+            constructorFinished.set(true)
+            appendLog("Controller setup: USB controller created")
+            controller = next
+            CarPlayMediaKeys.attach(this, next)
+            CarPlayBackgroundSession.store(next, renderer, size.width, size.height, this) { completion ->
+                runOnUiThread {
+                    shutdown(terminateProcess = false, reason = "DiPlay disconnect", completion = completion)
+                    finish()
+                }
+            }
+            appendLog("Controller setup: starting session service")
             val service = Intent(this, DiPlaySessionService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(service)
             else startService(service)
+            appendLog("Controller setup: starting USB discovery")
             next.start()
-        } catch (error: RuntimeException) {
-            appendLog("Connection could not start: ${error.javaClass.simpleName}")
-            shutdown(false, "foreground service could not start")
-            setConnectionStage(getString(R.string.could_not_start_carplay_return_to_diplay_and_check_app_per))
+        } catch (error: Throwable) {
+            constructorFinished.set(true)
+            appendLog("Connection could not start: ${error.javaClass.name}")
+            Log.getStackTraceString(error).lineSequence().take(20).forEach(::appendLog)
+            Log.e(TAG, "Connection could not start", error)
+            if (error is VerifyError) captureDalvikVerifierLog()
+            shutdown(false, "controller setup failed")
+            setConnectionStage(
+                if (error is VerifyError) getString(R.string.carplay_controller_verification_failed)
+                else getString(R.string.could_not_start_carplay_return_to_diplay_and_check_app_per),
+                showExactStage = true,
+            )
         }
+    }
+
+    private fun captureDalvikVerifierLog() {
+        val pid = Process.myPid()
+        Thread({
+            var process: java.lang.Process? = null
+            try {
+                process = Runtime.getRuntime().exec(arrayOf("logcat", "-d", "-v", "threadtime"))
+                val recent = java.util.ArrayDeque<String>()
+                var linesRead = 0
+                process.inputStream.bufferedReader().useLines { lines ->
+                    lines.take(10_000).forEach { line ->
+                        linesRead += 1
+                        if (line.contains("VFY:") || line.contains("VerifyError") ||
+                            line.contains("CarPlayController") || line.contains("Could not find class")) {
+                            if (recent.size == 60) recent.removeFirst()
+                            recent.addLast(line)
+                        }
+                    }
+                }
+                val stderr = process.errorStream.bufferedReader().readText().trim()
+                val exitCode = process.waitFor()
+                appendLog("Dalvik logcat result: pid=$pid lines=$linesRead matches=${recent.size} exit=$exitCode")
+                stderr.lineSequence().take(3).forEach { appendLog("Dalvik logcat stderr: ${it.take(200)}") }
+                recent.forEach { appendLog("Dalvik verifier: $it") }
+            } catch (error: Throwable) {
+                appendLog("Dalvik verifier log unavailable: ${error.javaClass.simpleName}")
+            } finally {
+                process?.destroy()
+            }
+        }, "diplay-verifier-log").apply { isDaemon = true; start() }
     }
 
     private fun syncAirPlayDarkMode() {
@@ -3538,10 +3557,42 @@ class CarPlayHostActivity : ComponentActivity() {
         }
     }
 
-    private fun setConnectionStage(message: String) {
+    private fun setConnectionStage(message: String, showExactStage: Boolean = false) {
         latestStage = message
-        stageStatusView?.text = friendlyStage(message)
+        stageStatusView?.text = if (showExactStage) message else friendlyStage(message)
         updateDebugOverlays()
+    }
+
+    private fun ncmDisplayStage(message: String): String? = when {
+        message == "NCM: reading the USB Ethernet MAC descriptor" -> getString(R.string.ncm_reading_mac)
+        message == "NCM: Ethernet MAC descriptor read complete" -> getString(R.string.ncm_mac_read)
+        message.startsWith("NCM: claiming interface ") -> getString(R.string.ncm_claiming_control)
+        message.startsWith("NCM: claim interface ") -> getString(R.string.ncm_control_claimed)
+        message.startsWith("NCM: claiming data interface ") -> getString(R.string.ncm_claiming_data)
+        message.startsWith("NCM: claim data interface ") -> getString(R.string.ncm_data_claimed)
+        message.startsWith("NCM: selecting data interface ") -> getString(R.string.ncm_selecting_alternate)
+        message.startsWith("NCM: selecting data alternate setting returned ") -> getString(R.string.ncm_alternate_selected)
+        message == "NCM: data paths opened" -> getString(R.string.ncm_data_opened)
+        message.startsWith("NCM open still waiting at: ") -> getString(
+            R.string.ncm_still_waiting,
+            ncmDisplayStage(message.removePrefix("NCM open still waiting at: "))
+                ?: getString(R.string.opening_usb_data_paths),
+        )
+        else -> null
+    }
+
+    private fun usbMuxDisplayStage(message: String): String? = when {
+        message == "USBMUX: opening host" -> getString(R.string.usbmux_opening)
+        message == "USBMUX: sending version request" -> getString(R.string.usbmux_sending_version)
+        message == "USBMUX: waiting for iPhone version reply" -> getString(R.string.usbmux_waiting_version)
+        message == "USBMUX: version reply accepted" -> getString(R.string.usbmux_version_accepted)
+        message == "USBMUX: setup message sent" -> getString(R.string.usbmux_setup_sent)
+        message.startsWith("USBMUX still waiting at: ") -> getString(
+            R.string.ncm_still_waiting,
+            usbMuxDisplayStage(message.removePrefix("USBMUX still waiting at: "))
+                ?: getString(R.string.usbmux_opening),
+        )
+        else -> null
     }
 
     private fun updateDebugOverlays() {

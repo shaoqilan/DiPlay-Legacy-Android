@@ -1,0 +1,155 @@
+DiPlay log started 2026-10-07 11:30:52.579 pid=2351 path=/data/user/0/com.shihab.diplay.hudvpn/files/logs/diplay.log
+11:30:52.692  Host started; MFI target=本地离线; transport=wired
+11:30:52.702  VPN prepare package=com.shihab.diplay.hudvpn consentRequired=false
+11:30:52.834  Texture surface created
+11:30:53.345  Display detected: 1080x1920
+11:30:53.380  CarPlay size=Default canvas=648x1152
+11:30:53.408  Display request selected=Default percent=100 surface=1080x1920 resolution=60% base=648x1152 candidate=648x1152 fps=30 codec=H.264 softwareHevc=false
+11:30:53.413  Decoder capability enlargement check not required
+11:30:53.419  Display effective percent=100 canvas=648x1152 decision=not_enlarging physical=141x250mm safeArea=AirPlayInsets(top=0, bottom=0, left=0, right=0) drawOutside=true
+11:30:53.478  Starting CarPlay controller at 1080x1920 -> 648x1152 (0.6x) physical=141x250mm video=H.264 decoder=hardware microphone=true location=disabled mfi=本地离线
+11:30:53.484  Controller setup: creating media sink
+11:30:53.522  Controller setup: creating USB controller
+11:30:53.544  Controller setup: USB controller created
+11:30:53.552  Controller setup: starting session service
+11:30:53.565  Controller setup: starting USB discovery
+11:30:53.576  mfi discovery backend=LocalOffline remoteFallback=disabled
+11:30:53.604  STEP mfi/start: preparing the configured MFi authentication provider
+11:30:53.718  STEP mfi/ready: MFi authentication provider is ready
+11:30:53.729  STEP usb/discover: searching for an iPhone USB device
+11:30:53.738  wired iPhone discovered vid=0x5ac pid=0x12a8
+11:30:53.751  wired iPhone USB permission already granted
+11:30:53.763  wired iPhone USB permission granted
+11:30:53.776  wired opening iPhone USB data paths
+11:30:53.787  STEP usb/config: selecting the iPhone CarPlay configuration
+11:30:53.799  STEP usb/data: opening iAP2 and NCM USB data paths
+11:30:53.815  USB active configuration before USBMUX: 6; target=6
+11:30:53.821  USBMUX config=6 iface=1/0 out=0x4 in=0x85
+11:30:53.828  USBMUX claim interface 1 returned true
+11:30:53.834  ncm config=6 control=3/0 data=4/1 status=0x87 in=0x88 out=0x6
+11:30:53.841  NCM: reading the USB Ethernet MAC descriptor
+11:30:53.850  NCM: Ethernet MAC descriptor read complete
+11:30:53.858  NCM: claiming interface 3
+11:30:53.865  NCM: claim interface 3 returned true
+11:30:53.875  NCM: claiming data interface 4
+11:30:53.883  NCM: claim data interface 4 returned true
+11:30:53.893  NCM: selecting data interface 4 alternate setting 1
+11:30:53.904  NCM: selecting data alternate setting returned true
+11:30:53.912  NCM: data paths opened
+11:30:53.920  USBMUX: opening host
+11:30:53.930  USBMUX: sending version request
+11:30:53.940  USBMUX: waiting for iPhone version reply
+11:30:53.949  wired bring-up failed: Invalid USBMUX frame length -1289854253
+11:30:53.957  ERROR Invalid USBMUX frame length -1289854253
+11:30:53.967  失败：Invalid USBMUX frame length -1289854253; retrying in 2000ms
+11:30:55.973  Reconnecting after 失败：Invalid USBMUX frame length -1289854253
+11:30:56.111  CarPlay size=Default canvas=648x1152
+11:30:56.144  Display request selected=Default percent=100 surface=1080x1920 resolution=60% base=648x1152 candidate=648x1152 fps=30 codec=H.264 softwareHevc=false
+11:30:56.153  Decoder capability enlargement check not required
+11:30:56.161  Display effective percent=100 canvas=648x1152 decision=not_enlarging physical=141x250mm safeArea=AirPlayInsets(top=0, bottom=0, left=0, right=0) drawOutside=true
+11:30:56.230  Starting CarPlay controller at 1080x1920 -> 648x1152 (0.6x) physical=141x250mm video=H.264 decoder=hardware microphone=true location=disabled mfi=本地离线
+11:30:56.240  Controller setup: creating media sink
+11:30:56.277  Controller setup: creating USB controller
+11:30:56.291  Controller setup: USB controller created
+11:30:56.299  Controller setup: starting session service
+11:30:56.313  Controller setup: starting USB discovery
+11:30:56.331  mfi discovery backend=LocalOffline remoteFallback=disabled
+11:30:56.369  STEP mfi/start: preparing the configured MFi authentication provider
+11:30:56.505  STEP mfi/ready: MFi authentication provider is ready
+11:30:56.514  STEP usb/discover: searching for an iPhone USB device
+11:30:56.524  wired iPhone discovered vid=0x5ac pid=0x12a8
+11:30:56.539  wired iPhone USB permission already granted
+11:30:56.546  wired iPhone USB permission granted
+11:30:56.560  wired opening iPhone USB data paths
+11:30:56.573  STEP usb/config: selecting the iPhone CarPlay configuration
+11:30:56.581  STEP usb/data: opening iAP2 and NCM USB data paths
+11:30:56.595  USB active configuration before USBMUX: 6; target=6
+11:30:56.602  USBMUX config=6 iface=1/0 out=0x4 in=0x85
+11:30:56.621  USBMUX claim interface 1 returned true
+11:30:56.632  ncm config=6 control=3/0 data=4/1 status=0x87 in=0x88 out=0x6
+11:30:56.642  NCM: reading the USB Ethernet MAC descriptor
+11:30:56.654  NCM: Ethernet MAC descriptor read complete
+11:30:56.672  NCM: claiming interface 3
+11:30:56.693  NCM: claim interface 3 returned true
+11:30:56.708  NCM: claiming data interface 4
+11:30:56.722  NCM: claim data interface 4 returned true
+11:30:56.733  NCM: selecting data interface 4 alternate setting 1
+11:30:56.746  NCM: selecting data alternate setting returned true
+11:30:56.762  NCM: data paths opened
+11:30:56.774  USBMUX: opening host
+11:30:56.786  USBMUX: sending version request
+11:30:56.793  USBMUX: waiting for iPhone version reply
+11:30:56.802  USBMUX: version reply accepted
+11:30:56.809  USBMUX: setup message sent
+11:30:56.818  wired USBMUX host opened
+11:30:56.826  STEP lockdown/pair: loading or creating the pairing record
+11:30:56.840  STEP lockdown/carkit: opening com.apple.carkit.service
+11:30:57.689  phone authentication diagnostic capture started
+11:30:58.474  wired com.apple.carkit.service stream opened
+11:30:58.481  wired iAP2 CSM channel opened
+11:30:58.487  ncm using hostMac=[address]
+11:30:58.493  STEP network/attach: attaching the AirPlay network transport
+11:30:58.501  wired link TX begin bytes=35
+11:30:58.507  wired VPN service started: ComponentInfo{com.shihab.diplay.hudvpn/com.shilapi.xcertplay.network.CarPlayVpnService}
+11:30:58.522  wired link TX completed bytes=35
+11:30:58.529  wired link RX bytes=6
+11:30:58.538  wired link RX bytes=29 length=29 flags=192 seq=177 ack=99 session=0
+11:30:58.557  wired link TX begin bytes=9 length=9 flags=64 seq=99 ack=177 session=0
+11:30:58.565  wired link TX completed bytes=9
+11:30:58.573  wired VPN service bound; attaching NCM transport
+11:30:58.584  wired link RX bytes=16 length=16 flags=64 seq=178 ack=99 session=10
+11:30:58.719  wired VPN/NCM transport attach result=started
+11:30:58.736  wired NCM/VPN AirPlay transport attached
+11:30:58.746  STEP iap2/wired: wired iAP2 control loop running
+11:30:58.757  wired iAP2 control starting
+11:30:58.768  IAP2 READY [wired] ready=true
+11:30:58.887  wired link TX begin bytes=308 length=308 flags=64 seq=100 ack=178 session=10
+11:31:00.663  wired link TX completed bytes=308
+11:31:00.719  wired link RX bytes=16 length=16 flags=64 seq=179 ack=100 session=10
+11:31:00.729  wired iap2 identification accepted
+11:31:00.737  wired link RX bytes=16 length=16 flags=64 seq=180 ack=100 session=10
+11:31:00.853  wired link TX begin bytes=627 length=627 flags=64 seq=101 ack=180 session=10
+11:31:00.900  wired link TX completed bytes=627
+11:31:01.019  wired link RX bytes=52 length=52 flags=64 seq=181 ack=101 session=10
+11:31:01.077  wired iap2 mfi rx=0xaa02 challenge bytes=32
+11:31:01.135  mfi local signature count=1 digestBytes=32
+11:31:01.167  wired iap2 mfi tx=0xaa03 signature bytes=64
+11:31:01.224  wired link TX begin bytes=84 length=84 flags=64 seq=102 ack=181 session=10
+11:31:02.651  wired link TX completed bytes=84
+11:31:02.717  wired link RX bytes=16 length=16 flags=64 seq=182 ack=102 session=10
+11:31:02.728  wired link RX bytes=85 length=85 flags=64 seq=183 ack=102 session=10
+11:31:02.736  wired iap2 mfi rx=0xaa05 authentication-succeeded
+11:31:02.745  wired iap2 authentication accepted
+11:31:02.835  wired link TX begin bytes=209 length=27 flags=64 seq=103 ack=183 session=10
+11:31:02.841  wired link TX completed bytes=209
+11:31:02.847  wired iap2 power/subscriptions sent
+11:31:02.870  wired iap2 rx=0x4300 carplay-availability
+11:31:02.878  wired iap2 4300 wiredAvailable=true usbTransport=[identifier]
+11:31:02.909  wired iap2 tx=0x4301 carplay-start-session
+11:31:02.954  wired link TX begin bytes=143 length=143 flags=64 seq=109 ack=183 session=10
+11:31:02.994  wired link TX completed bytes=143
+11:31:03.004  wired link RX bytes=70 length=70 flags=64 seq=184 ack=104 session=10
+11:31:03.043  wired link RX bytes=22 length=22 flags=64 seq=185 ack=104 session=12
+11:31:03.061  wired link RX bytes=22 length=22 flags=64 seq=186 ack=108 session=10
+11:31:03.082  wired link RX bytes=38 length=38 flags=64 seq=187 ack=108 session=10
+11:31:03.089  wired iap2 rx=0x5001
+11:31:03.098  wired iap2 rx=0xae01
+11:31:03.106  wired link RX bytes=21 length=21 flags=64 seq=188 ack=108 session=10
+11:31:03.127  wired link RX bytes=21 length=21 flags=64 seq=189 ack=108 session=10
+11:31:03.139  wired iap2 rx=0x5001
+11:31:03.147  wired iap2 rx=0xae01
+11:31:03.157  wired iap2 rx=0xae01
+11:31:03.163  wired link RX bytes=43 length=43 flags=64 seq=190 ack=108 session=10
+11:31:03.172  wired link RX bytes=43 length=43 flags=64 seq=191 ack=108 session=10
+11:31:03.180  wired link RX bytes=21 length=21 flags=64 seq=192 ack=108 session=10
+11:31:03.190  wired iap2 rx=0x4158
+11:31:03.222  wired iap2 rx=0x5001
+11:31:03.227  wired link RX bytes=25 length=25 flags=64 seq=193 ack=108 session=10
+11:31:03.233  wired link RX bytes=22 length=22 flags=64 seq=194 ack=108 session=12
+11:31:03.239  wired iap2 rx=0x4155
+11:31:03.244  wired iap2 rx=0x5001
+11:32:57.695  phone authentication diagnostic capture ended
+11:33:11.220  IAP2 RX [wired] FAILED: Android returned no USBMUX read request
+11:33:11.239  wired bring-up failed: Android returned no USBMUX read request
+11:33:13.671  ERROR Android returned no USBMUX read request
+11:33:13.690  失败：Android returned no USBMUX read request; retrying in 4000ms
