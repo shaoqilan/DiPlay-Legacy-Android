@@ -101,6 +101,7 @@ sealed class CarPlayStatus {
     data object WaitingForPairedIphone : CarPlayStatus()
     data object ConnectingBluetooth : CarPlayStatus()
     data object RunningWireless : CarPlayStatus()
+    data class WirelessProgress(val message: String) : CarPlayStatus()
     data object WirelessActive : CarPlayStatus()
     data object DiscoveringIphone : CarPlayStatus()
     data object WaitingForIphone : CarPlayStatus()
@@ -201,6 +202,7 @@ class CarPlayController(
     @Volatile var playbackListener: ((Boolean) -> Unit)? = null
     @Volatile private var hotspot: WirelessHotspotManager? = null
     @Volatile private var bonjour: CarPlayBonjour? = null
+    @Volatile private var secondaryBonjour: CarPlayBonjour? = null
     @Volatile private var bluetoothSocket: BluetoothSocket? = null
     @Volatile private var bluetoothStream: BluetoothRfcommDuplexStream? = null
     @Volatile private var wirelessTunnelChannel: Iap2Session? = null
@@ -866,7 +868,11 @@ class CarPlayController(
                 )
             }
             val hostAddressText = hostAddressText(hostAddress)
-            val deviceIdentifier = hotspotInfo.bssid
+            val deviceIdentifier = if (hotspotInfo.backend == com.shilapi.xcertplay.network.WirelessHotspotBackend.EXISTING_WIFI) {
+                // StartSession, Bonjour TXT and AirPlay /info must identify the same receiver.
+                // A station's BSSID identifies the router, not this accessory.
+                airPlayConfig.deviceId
+            } else hotspotInfo.bssid
                 ?.takeUnless { it.equals(ADAPTER_ADDRESS_PLACEHOLDER, ignoreCase = true) }
                 ?: airPlayConfig.deviceId
             debugLog(
@@ -910,6 +916,7 @@ class CarPlayController(
             when (
                 val result = service.attachWireless(
                     bindAddress = hostAddress,
+                    additionalBindAddresses = hotspotInfo.hostAddresses.filter { it != hostAddress },
                     config = wirelessAirPlayConfig,
                     identity = identity,
                     pairings = pairings,
@@ -946,6 +953,18 @@ class CarPlayController(
             )
             bonjour = bonjourClient
             bonjourClient.start()
+            hotspotInfo.hostAddresses.firstOrNull { it != hostAddress }?.let { secondaryAddress ->
+                val secondary = CarPlayBonjour(
+                    context = appContext,
+                    config = wirelessAirPlayConfig,
+                    identity = identity,
+                    advertisedHost = secondaryAddress.hostAddress,
+                    useInterfaceMdns = true,
+                    onEvent = { event -> debugLog("wireless secondary bonjour: ${event.diagnosticSummary()}") },
+                )
+                secondaryBonjour = secondary
+                secondary.start()
+            }
             debugLog("wireless Bonjour services started mode=interface iface=${hotspotInfo.interfaceName ?: "unknown"}")
             if (isStaleWirelessRun(generation)) {
                 closeWirelessStack()
@@ -985,11 +1004,17 @@ class CarPlayController(
                 passphrase = hotspotInfo.passphrase,
                 channel = hotspotInfo.channel,
                 security = hotspotInfo.security,
-                ipAddresses = listOf(hostAddressText),
+                ipAddresses = hotspotInfo.hostAddresses.map { address ->
+                    requireNotNull(address.hostAddress).substringBefore('%')
+                }.distinct(),
                 airPlayPort = airPlayConfig.port,
                 deviceIdentifier = deviceIdentifier,
                 publicKey = identity.publicKeyHex,
                 sourceVersion = airPlayConfig.sourceVersion,
+                accessPointBssid = if (hotspotInfo.backend == com.shilapi.xcertplay.network.WirelessHotspotBackend.EXISTING_WIFI) {
+                    hotspotInfo.bssid?.takeIf { it.matches(Regex("[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}")) }
+                        ?.split(":")?.map { it.toInt(16).toByte() }?.toByteArray()
+                } else null,
             )
             wirelessIdentification = identification
             wirelessAirPlayEndpoint = endpoint
@@ -1007,7 +1032,22 @@ class CarPlayController(
                 locationProvider = locationProvider,
                 vehicleStatusProvider = vehicleStatusProvider,
                 onIncoming = ::onRouteFrame,
-                onProgress = ::debugLog,
+                onProgress = { message ->
+                    debugLog(message)
+                    if (!isStaleWirelessRun(generation)) {
+                        when (message) {
+                            "iap2 authentication accepted" -> onStatus(CarPlayStatus.WirelessProgress("蓝牙认证已通过，正在交换 Wi-Fi 连接信息"))
+                            "iap2 tx=0x4301 carplay-start-session" -> {
+                                onStatus(CarPlayStatus.WirelessProgress("已发送 CarPlay 启动请求，等待 iPhone 建立 Wi-Fi / AirPlay 会话"))
+                                mainHandler.postDelayed({
+                                    if (!isStaleWirelessRun(generation) && activeSession == null && !wirelessActiveReported.get()) {
+                                        onStatus(CarPlayStatus.WirelessProgress("等待超过 45 秒：iPhone 尚未建立 AirPlay 会话，请检查 iPhone 的 CarPlay 设置和蓝牙配对"))
+                                    }
+                                }, 45_000L)
+                            }
+                        }
+                    }
+                },
             )
             if (isStaleWirelessRun(generation)) {
                 closeWirelessStack()
@@ -1659,7 +1699,8 @@ class CarPlayController(
     private fun startWirelessHotspot(generation: Int): WirelessHotspotInfo {
         val hotspotMode = when {
             Build.VERSION.SDK_INT < Build.VERSION_CODES.O &&
-                config.wirelessHotspotMode != WirelessHotspotMode.MANUAL -> WirelessHotspotMode.MANUAL
+                config.wirelessHotspotMode != WirelessHotspotMode.MANUAL &&
+                config.wirelessHotspotMode != WirelessHotspotMode.EXISTING_WIFI -> WirelessHotspotMode.MANUAL
             Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
                 config.wirelessHotspotMode == WirelessHotspotMode.WIFI_P2P -> WirelessHotspotMode.LOCAL_ONLY_HOTSPOT
             else -> config.wirelessHotspotMode
@@ -1670,6 +1711,17 @@ class CarPlayController(
             throw IOException("The car hotspot is off. Turn it on in the car settings and connect again.")
         }
         val manager: WirelessHotspotManager = when (hotspotMode) {
+            WirelessHotspotMode.EXISTING_WIFI -> com.shilapi.xcertplay.network.ExistingWifiManager(
+                context = appContext,
+                expectedSsid = config.existingWifiSsid?.takeIf { it.isNotBlank() }
+                    ?: throw IOException("Same-LAN Wi-Fi SSID is not configured"),
+                passphrase = config.existingWifiPassphrase.orEmpty(),
+                security = when (config.existingWifiSecurity) {
+                    com.shilapi.xcertplay.orchestration.ManualHotspotSecurity.OPEN -> com.shilapi.xcertplay.transport.Iap2WirelessSecurity.NONE
+                    else -> com.shilapi.xcertplay.transport.Iap2WirelessSecurity.WPA_WPA2
+                },
+                onDiagnostic = ::debugLog,
+            )
             WirelessHotspotMode.WIFI_P2P -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) createWifiP2pManager()
                 else throw IOException("Wi-Fi Direct group mode requires Android 10 or newer")
@@ -1815,6 +1867,9 @@ class CarPlayController(
         val activeBonjour = bonjour
         bonjour = null
         if (activeBonjour != null) closeBestEffort("Bonjour") { activeBonjour.close() }
+        val activeSecondaryBonjour = secondaryBonjour
+        secondaryBonjour = null
+        if (activeSecondaryBonjour != null) closeBestEffort("secondary Bonjour") { activeSecondaryBonjour.close() }
 
         val activeHotspot = hotspot
         hotspot = null
@@ -1886,12 +1941,12 @@ class CarPlayController(
         } catch (_: SecurityException) {
             null
         }
-        return listOfNotNull(address, settingsAddress)
+        return listOfNotNull(config.wirelessBluetoothMac, address, settingsAddress)
             .firstOrNull {
                 BLUETOOTH_ADDRESS.matches(it) &&
                     !it.equals(ADAPTER_ADDRESS_PLACEHOLDER, ignoreCase = true)
             }
-            ?: airPlayConfig.btMac
+            ?: throw IOException("无法读取本机真实蓝牙地址。请在连接设置中填写车机/接收端的蓝牙 MAC 地址，不能使用 iPhone 的地址。")
     }
 
     private fun hostAddressText(address: InetAddress): String {
@@ -2095,6 +2150,7 @@ class CarPlayController(
             "STEP bt/rfcomm: connecting to the iPhone iAP2 RFCOMM service"
         CarPlayStatus.RunningWireless ->
             "STEP iap2/wireless: Bluetooth control loop running"
+        is CarPlayStatus.WirelessProgress -> "STEP iap2/wireless: $message"
         CarPlayStatus.WirelessActive ->
             "STEP handoff/complete: tunnel iAP2 ready; Bluetooth bootstrap released"
         CarPlayStatus.DiscoveringIphone ->

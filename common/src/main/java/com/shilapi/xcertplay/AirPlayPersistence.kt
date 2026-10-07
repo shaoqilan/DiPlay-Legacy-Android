@@ -47,6 +47,10 @@ object AirPlayPersistence {
     private const val KEY_MANUAL_HOTSPOT_BAND = "manual_hotspot_band"
     private const val KEY_MANUAL_HOTSPOT_CHANNEL = "manual_hotspot_channel"
     private const val KEY_MANUAL_HOTSPOT_SECURITY = "manual_hotspot_security"
+    private const val KEY_EXISTING_WIFI_SSID = "existing_wifi_ssid"
+    private const val KEY_EXISTING_WIFI_PASSPHRASE = "existing_wifi_passphrase"
+    private const val KEY_EXISTING_WIFI_SECURITY = "existing_wifi_security"
+    private const val KEY_WIRELESS_BLUETOOTH_MAC = "wireless_bluetooth_mac"
     private const val KEY_DEBUG_LOGS_ENABLED = "debug_logs_enabled"
     private const val KEY_MANUFACTURER = "manufacturer"
     private const val KEY_MODEL = "model"
@@ -281,6 +285,16 @@ object AirPlayPersistence {
             .putString(KEY_MANUAL_HOTSPOT_SECURITY, security.name)
             .apply()
     }
+
+    fun loadExistingWifiSsid(context: Context): String = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_EXISTING_WIFI_SSID, null).orEmpty()
+    fun loadWirelessBluetoothMac(context: Context): String = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_WIRELESS_BLUETOOTH_MAC, null).orEmpty()
+    fun saveWirelessBluetoothMac(context: Context, value: String) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_WIRELESS_BLUETOOTH_MAC, value).apply() }
+    fun saveExistingWifiSsid(context: Context, value: String) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_EXISTING_WIFI_SSID, value).apply() }
+    fun loadExistingWifiPassphrase(context: Context): String = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_EXISTING_WIFI_PASSPHRASE, null).orEmpty()
+    fun saveExistingWifiPassphrase(context: Context, value: String) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_EXISTING_WIFI_PASSPHRASE, value).apply() }
+    fun loadExistingWifiSecurity(context: Context): ManualHotspotSecurity =
+        if (context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_EXISTING_WIFI_SECURITY, null) == ManualHotspotSecurity.OPEN.name) ManualHotspotSecurity.OPEN else ManualHotspotSecurity.WPA2
+    fun saveExistingWifiSecurity(context: Context, value: ManualHotspotSecurity) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_EXISTING_WIFI_SECURITY, value.name).apply() }
 
     fun loadDebugLogsEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

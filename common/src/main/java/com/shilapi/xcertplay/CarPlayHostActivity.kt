@@ -150,8 +150,12 @@ class CarPlayHostActivity : ComponentActivity() {
         hostName = "diplay-" + DiPlayBootstrap.deviceId(airPlayIdentity).replace(":", "").lowercase(),
         hostMac = DiPlayBootstrap.deviceId(airPlayIdentity).split(":").map { it.toInt(16).toByte() }.toByteArray(),
         wirelessBluetoothDeviceAddress = DiPlayPreferences.phoneAddress(this),
+        wirelessBluetoothMac = AirPlayPersistence.loadWirelessBluetoothMac(this).takeIf { it.isNotBlank() },
         transport = if (wirelessEnabled) CarPlayTransport.WIRELESS else CarPlayTransport.WIRED,
         wirelessHotspotMode = wirelessHotspotMode,
+        existingWifiSsid = AirPlayPersistence.loadExistingWifiSsid(this),
+        existingWifiPassphrase = AirPlayPersistence.loadExistingWifiPassphrase(this),
+        existingWifiSecurity = AirPlayPersistence.loadExistingWifiSecurity(this),
         manualHotspotSsid = manualHotspotSsid,
         manualHotspotPassphrase = manualHotspotPassphrase,
         manualHotspotBand = manualHotspotBand,
@@ -473,9 +477,7 @@ class CarPlayHostActivity : ComponentActivity() {
         safeAreaDrawOutside = AirPlayPersistence.loadSafeAreaDrawOutside(this)
         locationReportingEnabled = AirPlayPersistence.loadLocationReportingEnabled(this)
         locationPermissionAvailable = hasFineLocationPermission()
-        // Wireless CarPlay is temporarily disabled in this wired-only test build.
-        wirelessEnabled = false
-        AirPlayPersistence.saveWirelessEnabled(this, false)
+        wirelessEnabled = AirPlayPersistence.loadWirelessEnabled(this)
         mfiTarget = AirPlayPersistence.loadMfiTarget(this)
         mfiI2cPath = AirPlayPersistence.loadMfiI2cPath(this)
         remoteMfiServer = AirPlayPersistence.loadRemoteMfiServer(this)
@@ -2467,6 +2469,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun hotspotModeLabel(mode: WirelessHotspotMode): String = when (mode) {
+        WirelessHotspotMode.EXISTING_WIFI -> "Existing Wi-Fi / same LAN"
         WirelessHotspotMode.WIFI_P2P -> getString(R.string.wi_fi_p2p_5_ghz)
         WirelessHotspotMode.LOCAL_ONLY_HOTSPOT -> getString(R.string.localonlyhotspot)
         WirelessHotspotMode.MANUAL -> getString(R.string.manual_hotspot)
@@ -3697,6 +3700,7 @@ class CarPlayHostActivity : ComponentActivity() {
         CarPlayStatus.WaitingForPairedIphone -> getString(R.string.waiting_for_paired_iphone)
         CarPlayStatus.ConnectingBluetooth -> getString(R.string.connecting_bluetooth)
         CarPlayStatus.RunningWireless -> getString(R.string.wireless_carplay_control_running)
+        is CarPlayStatus.WirelessProgress -> message
         CarPlayStatus.WirelessActive -> getString(R.string.wireless_carplay_active)
         CarPlayStatus.DiscoveringIphone -> getString(R.string.discovering_iphone)
         CarPlayStatus.WaitingForIphone -> getString(R.string.waiting_for_iphone_over_usb)

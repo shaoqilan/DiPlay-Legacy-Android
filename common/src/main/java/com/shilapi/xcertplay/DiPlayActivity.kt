@@ -110,8 +110,6 @@ class DiPlayActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         languagePreferenceAtCreate = AppLocale.preference(this)
-        // This test build is wired-only. Clear the previous build's remembered wireless mode.
-        AirPlayPersistence.saveWirelessEnabled(this, false)
         DiPlayPreferences.saveAutoConnect(this, false)
         com.shilapi.xcertplay.hud.BydNavigationOutputs.onAppOpened(applicationContext)
         WindowCompat.setDecorFitsSystemWindows(window, true)
@@ -250,7 +248,7 @@ class DiPlayActivity : ComponentActivity() {
         content.addView(header)
         content.addView(space(24))
         when (page) {
-            "connection" -> home(content)
+            "connection" -> connectionSetup(content)
             "settings" -> settings(content)
             "about" -> about(content)
             else -> home(content)
@@ -283,11 +281,28 @@ class DiPlayActivity : ComponentActivity() {
             setPadding(0, dp(8), 0, dp(16))
         }
         right.addView(status)
-        connectButton = button(getString(R.string.connect_with_usb), true) {
-            if (CarPlayBackgroundSession.hasSession()) openProjection() else connect(false)
+        val wirelessSelected = AirPlayPersistence.loadWirelessEnabled(this)
+        connectButton = button(if (wirelessSelected) "连接手机（无线）" else getString(R.string.connect_with_usb), true) {
+            if (CarPlayBackgroundSession.hasSession()) openProjection()
+            else connect(AirPlayPersistence.loadWirelessEnabled(this))
         }
         right.addView(connectButton, matchButton())
-        right.addView(label(getString(R.string.plug_your_iphone_into_a_usb_data_port_allow_carplay_when_y), 14, MUTED).apply { gravity = Gravity.CENTER; setPadding(dp(8), dp(10), dp(8), dp(24)) })
+        right.addView(label(if (wirelessSelected) "按已保存的无线设置连接；同一局域网模式请保持两台设备连接同一 Wi-Fi，并开启蓝牙。" else getString(R.string.plug_your_iphone_into_a_usb_data_port_allow_carplay_when_y), 14, MUTED).apply { gravity = Gravity.CENTER; setPadding(dp(8), dp(10), dp(8), dp(24)) })
+        val sameLanSelected = AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.EXISTING_WIFI
+        right.addView(button(
+            "${if (sameLanSelected) "✓  " else ""}现有 Wi-Fi / 同一局域网",
+            sameLanSelected,
+        ) {
+            pendingCarHotspotSetup = false
+            AirPlayPersistence.saveWirelessHotspotMode(this, WirelessHotspotMode.EXISTING_WIFI)
+            if (AirPlayPersistence.loadExistingWifiSsid(this).isBlank()) {
+                page = "connection"
+                render()
+            } else {
+                connect(true)
+            }
+        }, matchButton(0, 58))
+        right.addView(button("连接设置", false) { page = "connection"; render() }, matchButton(8, 56))
         disconnectButton = button(getString(R.string.disconnect), false) {
             disconnectButton?.isEnabled = false
             CarPlayBackgroundSession.stop { runOnUiThread { refreshStatus() } }
@@ -628,6 +643,15 @@ class DiPlayActivity : ComponentActivity() {
         section(content, getString(R.string.s_2_pair_your_iphone)) { card ->
             card.addView(label(getString(R.string.keep_bluetooth_and_wi_fi_on_your_iphone_pair_with_the_car), 16, MUTED))
             card.addView(button("${getString(R.string.choose_iphone_prefix)}${DiPlayPreferences.phoneName(this)}", false) { choosePhone() }, matchButton(12, 60))
+            val localMac = AirPlayPersistence.loadWirelessBluetoothMac(this)
+            card.addView(button("本机蓝牙地址：${localMac.ifBlank { "自动读取" }}", false) {
+                textInput("车机/接收端真实蓝牙 MAC；留空自动读取", localMac, false) { value ->
+                    if (value.isEmpty() || (value.matches(Regex("[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}")) && value != "02:00:00:00:00:00")) {
+                        AirPlayPersistence.saveWirelessBluetoothMac(this, value.uppercase(java.util.Locale.US))
+                        render()
+                    } else toast("地址格式应为 AA:BB:CC:DD:EE:FF")
+                }
+            }, matchButton(8, 56))
             card.addView(button(getString(R.string.review_app_permissions), false) {
                 openSystem(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
             }, matchButton(12, 60))
@@ -644,9 +668,10 @@ class DiPlayActivity : ComponentActivity() {
 
     private fun wirelessLinkControls(parent: LinearLayout) {
         val mode = if (pendingCarHotspotSetup) WirelessHotspotMode.MANUAL else AirPlayPersistence.loadWirelessHotspotMode(this)
-        val modes = listOf(WirelessHotspotMode.MANUAL, WirelessHotspotMode.WIFI_P2P)
-        val titles = listOf(getString(R.string.built_in_car_hotspot), getString(R.string.wifi_direct))
+        val modes = listOf(WirelessHotspotMode.EXISTING_WIFI, WirelessHotspotMode.MANUAL, WirelessHotspotMode.WIFI_P2P)
+        val titles = listOf("现有 Wi-Fi / 同一局域网", getString(R.string.built_in_car_hotspot), getString(R.string.wifi_direct))
         val descriptions = listOf(
+            "车机和 iPhone 先连接同一个路由器或随身 Wi-Fi；DiPlay 只用蓝牙启动，不创建热点。",
             getString(R.string.hotspot_mode_manual_desc),
             getString(R.string.hotspot_mode_p2p_desc)
         )
@@ -669,7 +694,18 @@ class DiPlayActivity : ComponentActivity() {
             }, matchButton(12, 60))
             option.addView(label(descriptions[index], 15, MUTED).apply { setPadding(0, dp(6), 0, dp(12)) })
         }
-        if (mode == WirelessHotspotMode.MANUAL) {
+        if (mode == WirelessHotspotMode.EXISTING_WIFI) {
+            val saved = AirPlayPersistence.loadExistingWifiSsid(this)
+            parent.addView(button(if (saved.isBlank()) "设置现有 Wi-Fi 名称和密码" else "修改现有 Wi-Fi：$saved", false) {
+                askExistingWifiCredentials { ssid, password ->
+                    AirPlayPersistence.saveExistingWifiSsid(this, ssid)
+                    AirPlayPersistence.saveExistingWifiPassphrase(this, password)
+                    AirPlayPersistence.saveExistingWifiSecurity(this, if (password.isEmpty()) com.shilapi.xcertplay.orchestration.ManualHotspotSecurity.OPEN else com.shilapi.xcertplay.orchestration.ManualHotspotSecurity.WPA2)
+                    applyWirelessLink(WirelessHotspotMode.EXISTING_WIFI)
+                }
+            }, matchButton(12, 60))
+            parent.addView(label("iPhone 也必须连到该 Wi-Fi。若两个设备彼此隔离或路由器屏蔽 Bonjour/mDNS，连接会失败。", 15, MUTED))
+        } else if (mode == WirelessHotspotMode.MANUAL) {
             parent.addView(label(getString(R.string.hotspot_setup), 22, TEXT, true))
             parent.addView(label(getString(R.string.s_1_open_car_hotspot_settings_turn_the_hotspot_on_and_sele), 16, MUTED).apply { setPadding(0, dp(8), 0, dp(12)) })
             parent.addView(button(getString(R.string.open_car_hotspot_settings), false) { openCarWifiSettings() }, matchButton(0, 60))
@@ -685,6 +721,24 @@ class DiPlayActivity : ComponentActivity() {
             parent.addView(label(getString(R.string.turn_the_car_s_wi_fi_switch_on_allow_location_nearby_devic), 16, MUTED))
             parent.addView(button(getString(R.string.open_car_wi_fi_settings), false) { openCarClientWifiSettings() }, matchButton(12, 60))
         }
+    }
+
+    private fun askExistingWifiCredentials(done: (String, String) -> Unit) {
+        val fields = column().apply { setPadding(dp(24), dp(12), dp(24), dp(12)) }
+        fields.addView(label("填写车机与 iPhone 已连接的同一 Wi-Fi 网络；这里不会开启或切换 Wi-Fi。", 15, MUTED))
+        val ssid = EditText(this).apply { hint = "Wi-Fi 名称 (SSID)"; setText(AirPlayPersistence.loadExistingWifiSsid(this@DiPlayActivity)); setSingleLine() }
+        val password = EditText(this).apply {
+            hint = "Wi-Fi 密码；开放网络留空"; setText(AirPlayPersistence.loadExistingWifiPassphrase(this@DiPlayActivity)); setSingleLine()
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        fields.addView(ssid); fields.addView(password)
+        val dialog = AlertDialog.Builder(this).setTitle("现有 Wi-Fi / 同一局域网")
+            .setView(fields).setPositiveButton(getString(R.string.save), null).setNegativeButton(getString(R.string.cancel), null).create()
+        dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val name = ssid.text.toString().trim(); val secret = password.text.toString()
+            when { name.isBlank() -> ssid.error = "请输入 Wi-Fi 名称"; name.encodeToByteArray().size > 32 -> ssid.error = "SSID 最长 32 字节"; secret.isNotEmpty() && secret.length !in 8..63 -> password.error = "密码应为 8 到 63 个字符"; else -> { dialog.dismiss(); done(name, secret) } }
+        } }
+        dialog.show()
     }
 
     private fun storedSsid() = AirPlayPersistence.loadManualHotspotSsid(this)
@@ -881,6 +935,9 @@ class DiPlayActivity : ComponentActivity() {
         suppressUsbAutoConnectAfterCarHome = false
         if (wireless && pendingCarHotspotSetup) { toast(getString(R.string.save_your_hotspot_details_in_connection_setup_first)); page = "connection"; render(); return }
         if (setupError != null) { toast(setupError!!); return }
+        if (wireless && AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.EXISTING_WIFI && AirPlayPersistence.loadExistingWifiSsid(this).isBlank()) {
+            page = "connection"; render(); toast("请先填写现有 Wi-Fi 的 SSID"); return
+        }
         if (wireless && AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL &&
             hotspotError(storedSsid(), storedPassword()) != null) {
             pendingCarHotspotSetup = true
@@ -889,7 +946,7 @@ class DiPlayActivity : ComponentActivity() {
             toast(getString(R.string.save_the_name_and_password_from_the_car_s_hotspot_settings))
             return
         }
-        if (wireless && carHotspotOff()) { carHotspotOffDialog(); return }
+        if (wireless && AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL && carHotspotOff()) { carHotspotOffDialog(); return }
         if (wireless && DiPlayPreferences.phoneAddress(this) == null) {
             pendingWireless = true; choosePhone(); return
         }
@@ -1011,7 +1068,9 @@ class DiPlayActivity : ComponentActivity() {
             else -> getString(R.string.ready_when_you_are)
         }
         if (lastRunning != running) {
-            connectButton?.text = if (running) getString(R.string.open_carplay) else getString(R.string.connect_phone)
+            connectButton?.text = if (running) getString(R.string.open_carplay)
+                else if (AirPlayPersistence.loadWirelessEnabled(this)) "连接手机（无线）"
+                else getString(R.string.connect_with_usb)
             disconnectButton?.visibility = if (running) View.VISIBLE else View.GONE
             disconnectButton?.isEnabled = true
             lastRunning = running

@@ -294,6 +294,7 @@ class Iap2WirelessControlClient(
                 passphrase = endpoint.passphrase,
                 channel = endpoint.channel,
                 securityType = endpoint.security.wireValue,
+                bssid = endpoint.accessPointBssid,
             )
 
         /** Wireless 0x4301 reply carrying the receiver address, port and pairing identity. */
@@ -358,10 +359,13 @@ class Iap2WirelessCarPlayEndpoint(
     val deviceIdentifier: String,
     val publicKey: String,
     val sourceVersion: String,
+    accessPointBssid: ByteArray? = null,
 ) {
     val ipAddresses: List<String> = ipAddresses.toList()
+    val accessPointBssid: ByteArray? = accessPointBssid?.copyOf()
 
     init {
+        require(accessPointBssid == null || accessPointBssid.size == 6) { "AP BSSID must be six bytes" }
         require(ssid.isNotBlank()) { "ssid is required and must not be blank" }
         require('\u0000' !in ssid) { "ssid must not contain U+0000" }
         require('\u0000' !in passphrase) { "passphrase must not contain U+0000" }

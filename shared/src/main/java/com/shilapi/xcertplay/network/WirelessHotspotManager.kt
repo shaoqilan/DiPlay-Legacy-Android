@@ -5,6 +5,7 @@ import java.io.Closeable
 import java.net.InetAddress
 
 enum class WirelessHotspotBackend(val label: String) {
+    EXISTING_WIFI("Existing Wi-Fi / same LAN"),
     WIFI_P2P("Wi-Fi P2P"),
     LOCAL_ONLY_HOTSPOT("LocalOnlyHotspot"),
     MANUAL_HOTSPOT("Manual hotspot"),
@@ -22,6 +23,7 @@ class WirelessHotspotInfo(
     val hostAddress: InetAddress?,
     val bandLabel: String,
     val backend: WirelessHotspotBackend,
+    val hostAddresses: List<InetAddress> = listOfNotNull(hostAddress),
 ) {
     override fun toString(): String =
         "WirelessHotspotInfo(backend=${backend.label}, ssid='$ssid', " +

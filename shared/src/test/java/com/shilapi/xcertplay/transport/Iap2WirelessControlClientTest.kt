@@ -105,12 +105,21 @@ class Iap2WirelessControlClientTest {
         assertTrue(0x4300 in u16Values(parameters.single { it.id == 7 }.payload))
     }
 
-    private fun endpoint(): Iap2WirelessCarPlayEndpoint = Iap2WirelessCarPlayEndpoint(
+    @Test
+    fun wirelessStartSessionAdvertisesBothAddressFamilies() {
+        val addresses = listOf("fe80::1234", "192.168.2.1")
+        val frame = Iap2WirelessControlClient.carPlayStartSession(endpoint(addresses))
+        val wireless = parameters(parameters(frame.payload).single { it.id == 1 }.payload)
+
+        assertEquals(addresses.map { "$it\u0000" }, wireless.filter { it.id == 3 }.map { it.payload.decodeToString() })
+    }
+
+    private fun endpoint(ipAddresses: List<String> = listOf("192.168.2.1")): Iap2WirelessCarPlayEndpoint = Iap2WirelessCarPlayEndpoint(
         ssid = "LIVI",
         passphrase = "secret123",
         channel = 36,
         security = Iap2WirelessSecurity.WPA3_TRANSITION,
-        ipAddresses = listOf("192.168.2.1"),
+        ipAddresses = ipAddresses,
         airPlayPort = 49152,
         deviceIdentifier = "dev-1",
         publicKey = "aabbcc",

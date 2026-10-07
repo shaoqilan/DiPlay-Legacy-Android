@@ -18,6 +18,7 @@ enum class MfiTarget {
 }
 
 enum class WirelessHotspotMode {
+    EXISTING_WIFI,
     WIFI_P2P,
     LOCAL_ONLY_HOTSPOT,
     MANUAL,
@@ -56,12 +57,16 @@ class CarPlayRuntimeConfig(
     val hostName: String = "xcertplay",
     val transport: CarPlayTransport = CarPlayTransport.WIRED,
     val wirelessHotspotMode: WirelessHotspotMode = WirelessHotspotMode.WIFI_P2P,
+    val existingWifiSsid: String? = null,
+    val existingWifiPassphrase: String? = null,
+    val existingWifiSecurity: ManualHotspotSecurity = ManualHotspotSecurity.WPA2,
     val manualHotspotSsid: String? = null,
     val manualHotspotPassphrase: String? = null,
     val manualHotspotBand: ManualHotspotBand = ManualHotspotBand.AUTO,
     val manualHotspotChannel: Int = 0,
     val manualHotspotSecurity: ManualHotspotSecurity = ManualHotspotSecurity.WPA2,
     val wirelessBluetoothDeviceAddress: String? = null,
+    val wirelessBluetoothMac: String? = null,
     val locationReportingEnabled: Boolean = false,
 ) {
     init {
