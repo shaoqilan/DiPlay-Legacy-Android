@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.network
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.wifi.WifiManager
 import android.os.Looper
 import com.shilapi.xcertplay.transport.Iap2WirelessSecurity
@@ -21,6 +22,10 @@ class ExistingWifiManager(
 ) : WirelessHotspotManager {
     private val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
     private val security = security
+    // Opt-in for the standalone phone-hotspot experiment; ordinary LAN builds keep both families.
+    private val ipv4Only = context.packageManager
+        .getApplicationInfo(context.packageName, PackageManager.GET_META_DATA)
+        .metaData?.getBoolean("com.shilapi.xcertplay.PHONE_HOTSPOT_IPV4_ONLY", false) == true
     @Volatile private var closed = false
 
     override fun start(timeoutMillis: Long): WirelessHotspotInfo {
@@ -42,8 +47,8 @@ class ExistingWifiManager(
         if (closed) throw IOException("Existing Wi-Fi session was cancelled")
         val ipv6 = Collections.list(networkInterface.inetAddresses).filterIsInstance<Inet6Address>()
             .firstOrNull { it.isLinkLocalAddress && it.scopeId > 0 }
-        val addresses = listOfNotNull(ipv6, address)
-        onDiagnostic("Existing Wi-Fi: ssidMatch=${liveSsid == expectedSsid} iface=${networkInterface.name} ipv4=$address; hotspot creation disabled")
+        val addresses = if (ipv4Only) listOf(address) else listOfNotNull(ipv6, address)
+        onDiagnostic("Existing Wi-Fi: ssidMatch=${liveSsid == expectedSsid} iface=${networkInterface.name} ipv4=$address addressPolicy=${if (ipv4Only) "ipv4-only" else "dual-stack"}; hotspot creation disabled")
         val bssid = info.bssid?.takeUnless { it == "02:00:00:00:00:00" || it == "00:00:00:00:00:00" }
         val frequency = runCatching { wifi.scanResults.firstOrNull { it.BSSID.equals(bssid, ignoreCase = true) }?.frequency }
             .getOrNull()?.takeIf { it > 0 }
